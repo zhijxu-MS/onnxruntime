@@ -11,7 +11,10 @@ namespace onnxruntime {
 
 namespace {
 bool IsFusableActivation(const Node& node) {
-  return utils::IsSupportedOptypeVersionAndDomain(node, "LeakyRelu", 6) || utils::IsSupportedOptypeVersionAndDomain(node, "Relu", 6) || utils::IsSupportedOptypeVersionAndDomain(node, "Sigmoid", 6) || utils::IsSupportedOptypeVersionAndDomain(node, "Tanh", 6);
+  return graph_edit_utils::IsSupportedOptypeVersionAndDomain(node, "LeakyRelu", 6) ||
+         graph_edit_utils::IsSupportedOptypeVersionAndDomain(node, "Relu", 6) ||
+         graph_edit_utils::IsSupportedOptypeVersionAndDomain(node, "Sigmoid", 6) ||
+         graph_edit_utils::IsSupportedOptypeVersionAndDomain(node, "Tanh", 6);
 }
 }  // namespace
 
@@ -22,7 +25,7 @@ Status ConvActivationFusion::Apply(Graph& graph, bool& modified) const {
   std::vector<onnxruntime::NodeIndex> removed_nodes;
   for (auto index : order) {
     auto node = graph.GetNode(index);
-    if (!utils::IsSupportedOptypeVersionAndDomain(*node, "Conv", 1) || node->GetOutputEdgesCount() != 1) {
+    if (!graph_edit_utils::IsSupportedOptypeVersionAndDomain(*node, "Conv", 1) || node->GetOutputEdgesCount() != 1) {
       continue;
     }
     const Node& next_node = *(node->OutputNodesBegin());
