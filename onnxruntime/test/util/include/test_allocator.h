@@ -1,38 +1,37 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "core/session/allocator.h"
 #include <atomic>
 #include <stdexcept>
-#include "core/framework/allocator_info.h"
+#include "core/session/onnxruntime_c_api.h"
 #include "core/session/onnxruntime_cxx_api.h"
 #include <assert.h>
 
-#define ONNXRUNTIME_ALLOCATOR_IMPL_BEGIN(CLASS_NAME)                                                \
-  class CLASS_NAME {                                                                                \
-   private:                                                                                         \
-    const ONNXRuntimeAllocatorInteface* vtable_ = &table_;                                          \
-    std::atomic_int ref_count_;                                                                     \
-    static void* ONNXRUNTIME_API_STATUSCALL Alloc_(void* this_ptr, size_t size) {                   \
-      return ((CLASS_NAME*)this_ptr)->Alloc(size);                                                  \
-    }                                                                                               \
-    static void ONNXRUNTIME_API_STATUSCALL Free_(void* this_ptr, void* p) {                         \
-      return ((CLASS_NAME*)this_ptr)->Free(p);                                                      \
-    }                                                                                               \
-    static const ONNXRuntimeAllocatorInfo* ONNXRUNTIME_API_STATUSCALL Info_(const void* this_ptr) { \
-      return ((const CLASS_NAME*)this_ptr)->Info();                                                 \
-    }                                                                                               \
-    static uint32_t ONNXRUNTIME_API_STATUSCALL AddRef_(void* this_) {                               \
-      CLASS_NAME* this_ptr = (CLASS_NAME*)this_;                                                    \
-      return ++this_ptr->ref_count_;                                                                \
-    }                                                                                               \
-    static uint32_t ONNXRUNTIME_API_STATUSCALL Release_(void* this_) {                              \
-      CLASS_NAME* this_ptr = (CLASS_NAME*)this_;                                                    \
-      uint32_t ret = --this_ptr->ref_count_;                                                        \
-      if (ret == 0)                                                                                 \
-        delete this_ptr;                                                                            \
-      return 0;                                                                                     \
-    }                                                                                               \
+#define ONNXRUNTIME_ALLOCATOR_IMPL_BEGIN(CLASS_NAME)                                          \
+  class CLASS_NAME {                                                                          \
+   private:                                                                                   \
+    const ONNXRuntimeAllocatorInteface* vtable_ = &table_;                                    \
+    std::atomic_int ref_count_;                                                               \
+    static void* ONNXRUNTIME_API_CALL Alloc_(void* this_ptr, size_t size) {                   \
+      return ((CLASS_NAME*)this_ptr)->Alloc(size);                                            \
+    }                                                                                         \
+    static void ONNXRUNTIME_API_CALL Free_(void* this_ptr, void* p) {                         \
+      return ((CLASS_NAME*)this_ptr)->Free(p);                                                \
+    }                                                                                         \
+    static const ONNXRuntimeAllocatorInfo* ONNXRUNTIME_API_CALL Info_(const void* this_ptr) { \
+      return ((const CLASS_NAME*)this_ptr)->Info();                                           \
+    }                                                                                         \
+    static uint32_t ONNXRUNTIME_API_CALL AddRef_(void* this_) {                               \
+      CLASS_NAME* this_ptr = (CLASS_NAME*)this_;                                              \
+      return ++this_ptr->ref_count_;                                                          \
+    }                                                                                         \
+    static uint32_t ONNXRUNTIME_API_CALL Release_(void* this_) {                              \
+      CLASS_NAME* this_ptr = (CLASS_NAME*)this_;                                              \
+      uint32_t ret = --this_ptr->ref_count_;                                                  \
+      if (ret == 0)                                                                           \
+        delete this_ptr;                                                                      \
+      return 0;                                                                               \
+    }                                                                                         \
     static ONNXRuntimeAllocatorInteface table_;
 
 #define ONNXRUNTIME_ALLOCATOR_IMPL_END \
@@ -52,10 +51,10 @@ MockedONNXRuntimeAllocator() : ref_count_(1), memory_inuse(0) {
 }
 
 public:
- MockedONNXRuntimeAllocator(const MockedONNXRuntimeAllocator&) = delete;
- MockedONNXRuntimeAllocator& operator=(const MockedONNXRuntimeAllocator&) = delete;
- ONNXRuntimeAllocatorInteface** Upcast() {
-   return const_cast<ONNXRuntimeAllocatorInteface**>(&vtable_);
+MockedONNXRuntimeAllocator(const MockedONNXRuntimeAllocator&) = delete;
+MockedONNXRuntimeAllocator& operator=(const MockedONNXRuntimeAllocator&) = delete;
+ONNXRuntimeAllocatorInteface** Upcast() {
+  return const_cast<ONNXRuntimeAllocatorInteface**>(&vtable_);
 }
 static ONNXRuntimeAllocatorInteface** Create() {
   return (ONNXRuntimeAllocatorInteface**)new MockedONNXRuntimeAllocator();
@@ -84,4 +83,3 @@ void LeakCheck() {
     throw std::runtime_error("memory leak!!!");
 }
 ONNXRUNTIME_ALLOCATOR_IMPL_END
-

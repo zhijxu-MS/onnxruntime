@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "core/framework/onnx_object.h"
 #include "core/session/onnxruntime_cxx_api.h"
 #include <gtest/gtest.h>
 
@@ -14,7 +13,7 @@ typedef const char* PATH_TYPE;
 #endif
 
 //empty
-static inline void ONNXRUNTIME_API_STATUSCALL MyLoggingFunction(void*, ONNXRuntimeLoggingLevel, const char*, const char*, const char*, const char*) {
+static inline void ONNXRUNTIME_API_CALL MyLoggingFunction(void*, ONNXRuntimeLoggingLevel, const char*, const char*, const char*, const char*) {
 }
 template <bool use_customer_logger>
 class CApiTestImpl : public ::testing::Test {

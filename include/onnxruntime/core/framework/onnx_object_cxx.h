@@ -3,7 +3,7 @@
 
 #pragma once
 #include "core/common/common.h"
-#include "core/framework/onnx_object.h"
+#include "core/session/onnxruntime_c_api.h"
 #include <atomic>
 
 namespace onnxruntime {
@@ -24,14 +24,14 @@ class ObjectBase {
   ObjectBase() : cls_(&static_cls), ref_count(1) {
   }
 
-  static uint32_t ONNXRUNTIME_API_STATUSCALL ONNXRuntimeReleaseImpl(void* this_) {
+  static uint32_t ONNXRUNTIME_API_CALL ONNXRuntimeReleaseImpl(void* this_) {
     T* this_ptr = reinterpret_cast<T*>(this_);
     if (--this_ptr->ref_count == 0)
       delete this_ptr;
     return 0;
   }
 
-  static uint32_t ONNXRUNTIME_API_STATUSCALL ONNXRuntimeAddRefImpl(void* this_) {
+  static uint32_t ONNXRUNTIME_API_CALL ONNXRuntimeAddRefImpl(void* this_) {
     T* this_ptr = reinterpret_cast<T*>(this_);
     ++this_ptr->ref_count;
     return 0;

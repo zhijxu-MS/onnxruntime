@@ -162,7 +162,7 @@ int real_main(int argc, char* argv[]) {
   std::unique_ptr<ONNXRuntimeEnv> env;
   {
     ONNXRuntimeEnv* t;
-    ONNXStatusPtr ost = ONNXRuntimeInitialize(logging_level, "Default", &t);
+    ONNXStatus* ost = ONNXRuntimeInitialize(logging_level, "Default", &t);
     if (ost != nullptr) {
       fprintf(stderr, "Error creating environment: %s \n", ONNXRuntimeGetErrorMessage(ost));
       ReleaseONNXStatus(ost);
@@ -176,7 +176,7 @@ int real_main(int argc, char* argv[]) {
   std::unique_ptr<ONNXRuntimeAllocator> default_allocator;
   {
     ONNXRuntimeAllocator* p;
-    ONNXStatusPtr ost = ONNXRuntimeCreateDefaultAllocator(&p);
+    ONNXStatus* ost = ONNXRuntimeCreateDefaultAllocator(&p);
     if (ost != nullptr) {
       fprintf(stderr, "Error creating environment: %s \n", ONNXRuntimeGetErrorMessage(ost));
       ReleaseONNXStatus(ost);
@@ -200,7 +200,7 @@ int real_main(int argc, char* argv[]) {
       sf.DisableSequentialExecution();
     if (enable_cuda) {
 #ifdef USE_CUDA
-      ONNXRuntimeProviderFactoryPtr* f;
+      ONNXRuntimeProviderFactoryInterface** f;
       ONNXRUNTIME_THROW_ON_ERROR(ONNXRuntimeCreateCUDAExecutionProviderFactory(0, &f));
       sf.AppendExecutionProvider(f);
       ONNXRuntimeReleaseObject(f);
@@ -211,7 +211,7 @@ int real_main(int argc, char* argv[]) {
     }
     if (enable_nuphar) {
 #ifdef USE_NUPHAR
-      ONNXRuntimeProviderFactoryPtr* f;
+      ONNXRuntimeProviderFactoryInterface** f;
       ONNXRUNTIME_THROW_ON_ERROR(ONNXRuntimeCreateNupharExecutionProviderFactory(0, "", &f));
       sf.AppendExecutionProvider(f);
       ONNXRuntimeReleaseObject(f);
@@ -222,7 +222,7 @@ int real_main(int argc, char* argv[]) {
     }
     if (enable_mkl) {
 #ifdef USE_MKLDNN
-      ONNXRuntimeProviderFactoryPtr* f;
+      ONNXRuntimeProviderFactoryInterface** f;
       ONNXRUNTIME_THROW_ON_ERROR(ONNXRuntimeCreateMkldnnExecutionProviderFactory(enable_cpu_mem_arena ? 1 : 0, &f));
       sf.AppendExecutionProvider(f);
       ONNXRuntimeReleaseObject(f);
@@ -309,7 +309,6 @@ int real_main(int argc, char* argv[]) {
       {"operator_rnn_single_layer", "disable reason"},
       {"prelu_broadcast", "disable reason"},
       {"prelu_example", "disable reason"},
-      {"cntk_simple_seg", "mkldnn test failed"},
       {"maxunpool_export_with_output_shape", "opset 9 not supported yet"},
       {"maxunpool_export_without_output_shape", "opset 9 not supported yet"},
       {"upsample_nearest", "opset 9 not supported yet"},
@@ -324,7 +323,12 @@ int real_main(int argc, char* argv[]) {
       {"cosh_example", "opset 9 not supported yet"},
       {"asinh_example", "opset 9 not supported yet"},
       {"acosh_example", "opset 9 not supported yet"},
-      {"atanh_example", "opset 9 not supported yet"}};
+      {"atanh_example", "opset 9 not supported yet"},
+      {"sign_model", "opset 9 not supported yet"},
+      {"sign", "opset 9 not supported yet"},
+      {"scatter_with_axis", "opset 9 not supported yet"},
+      {"scatter_without_axis", "opset 9 not supported yet"},
+      {"scan_sum", "opset 9 not supported yet"}};
 
 #ifdef USE_CUDA
   broken_tests["maxpool_2d_default"] = "cudnn pooling only support input dimension >= 3";
