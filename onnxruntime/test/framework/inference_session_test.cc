@@ -1227,7 +1227,7 @@ TEST(InferenceSessionTests, TestTruncatedSequence) {
     truncated_input_dims[0] = truncated_len;
     MLValue truncated_ml_value;
     std::vector<float> truncated_input(X.begin() + seq_start * seq_stride, X.begin() + (seq_start + truncated_len) * seq_stride);
-    CreateMLValue<float>(TestCPUExecutionProvider()->GetAllocator(0, ONNXRuntimeMemTypeDefault), truncated_input_dims, truncated_input, &truncated_ml_value);
+    CreateMLValue<float>(TestCPUExecutionProvider()->GetAllocator(0, OrtMemTypeDefault), truncated_input_dims, truncated_input, &truncated_ml_value);
     NameMLValMap truncated_feeds;
     truncated_feeds.insert(std::make_pair(graph_proto.input(0).name(), truncated_ml_value));
     if (seq_start > 0) {
