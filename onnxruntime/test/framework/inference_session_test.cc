@@ -1181,7 +1181,7 @@ TEST(InferenceSessionTests, TestTruncatedSequence) {
                                -0.00312682f, -0.0000455682f};
 
   MLValue ml_value;
-  CreateMLValue<float>(TestCPUExecutionProvider()->GetAllocator(0, ONNXRuntimeMemTypeDefault), X_dims, X, &ml_value);
+  CreateMLValue<float>(TestCPUExecutionProvider()->GetAllocator(0, OrtMemTypeDefault), X_dims, X, &ml_value);
   NameMLValMap feeds;
   feeds.insert(std::make_pair(graph_proto.input(0).name(), ml_value));
 
