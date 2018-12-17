@@ -1120,6 +1120,7 @@ TEST(InferenceSessionTests, TestTruncatedSequence) {
   ASSERT_TRUE(model_file_stream.good());
   ModelProto model_proto;
   Model::Load(model_file_stream, &model_proto);
+  model_file_stream.close();
   GraphProto& graph_proto = *model_proto.mutable_graph();
 
   auto find_attr = [&](const NodeProto& node, const std::string& attr_name) -> const AttributeProto* {
