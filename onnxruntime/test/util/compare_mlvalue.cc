@@ -12,13 +12,21 @@
 
 using namespace onnxruntime;
 
+#if (!EIGEN_VERSION_AT_LEAST(3, 3, 6))
+  namespace Eigen {
+    namespace half_impl {
+      using __half_raw = ::Eigen::half_impl::__half;
+    }
+  }
+#endif
+
 #define CASE_TYPE(X)                             \
   case ONNX_NAMESPACE::TensorProto_DataType_##X: \
     return ONNX_TENSOR_ELEMENT_DATA_TYPE_##X;
 
 namespace {
 
-OrtTensorElementDataType CApiElementTypeFromProto(ONNX_NAMESPACE::TensorProto_DataType type) {
+ONNXTensorElementDataType CApiElementTypeFromProto(int type) {
   switch (type) {
     CASE_TYPE(FLOAT)
     CASE_TYPE(UINT8)
@@ -56,14 +64,20 @@ std::pair<COMPARE_RESULT, std::string> CompareFloatResult(const Tensor& outvalue
     const double real_value = post_processing ? std::max<double>(0.0, std::min<double>(255.0, real_output[di]))
                                               : real_output[di];
     const double diff = fabs(expected_output[di] - real_value);
-    const double rtol = per_sample_tolerance + relative_per_sample_tolerance * fabs(expected_output[di]);
-    if (diff > rtol || (std::isnan(diff) && !std::isnan(expected_output[di]))) {
+    const double tol = per_sample_tolerance + relative_per_sample_tolerance * fabs(expected_output[di]);
+    if (diff > tol || (std::isnan(diff) && !std::isnan(expected_output[di]))) {
       res.first = COMPARE_RESULT::RESULT_DIFFERS;
       // update error message if this is a larger diff
       if (diff > max_diff || (std::isnan(diff) && !std::isnan(max_diff))) {
+        int64_t expected_int = 0;
+        int64_t real_int = 0;
+        memcpy(&expected_int, &expected_output[di], sizeof(FLOAT_TYPE));
+        memcpy(&real_int, &real_output[di], sizeof(FLOAT_TYPE));
+
         std::ostringstream oss;
-        oss << "expected " << expected_output[di] << ", got " << real_value
-            << ", diff: " << diff << ", tol=" << rtol << ".";
+        oss << std::hex << "expected " << expected_output[di] << " (" << expected_int << "), got "
+            << real_value << " (" << real_int << ")"
+            << ", diff: " << diff << ", tol=" << tol << ".";
         res.second = oss.str();
         max_diff = diff;
       }
@@ -102,8 +116,8 @@ std::pair<COMPARE_RESULT, std::string> CompareFloat16Result(const Tensor& outval
   const MLFloat16* expected_output = expected_value.template Data<MLFloat16>();
   const MLFloat16* real_output = outvalue.template Data<MLFloat16>();
   for (size_t di = 0; di != size1; ++di) {
-    float expected = Eigen::half_impl::half_to_float(Eigen::half_impl::__half(expected_output[di].val));
-    float real = Eigen::half_impl::half_to_float(Eigen::half_impl::__half(real_output[di].val));
+    float expected = Eigen::half_impl::half_to_float(Eigen::half_impl::__half_raw(expected_output[di].val));
+    float real = Eigen::half_impl::half_to_float(Eigen::half_impl::__half_raw(real_output[di].val));
     real = post_processing ? std::max(0.0f, std::min(255.0f, real)) : real;
     const double diff = fabs(expected - real);
     const double rtol = per_sample_tolerance + relative_per_sample_tolerance * fabs(expected);
@@ -313,7 +327,7 @@ std::pair<COMPARE_RESULT, std::string> CompareMLValue(const MLValue& o, const ML
                            per_sample_tolerance, relative_per_sample_tolerance, post_processing);
 }
 
-std::pair<COMPARE_RESULT, std::string> VerifyValueInfo(const ONNX_NAMESPACE::ValueInfoProto& v, const ONNXValue* o) {
+std::pair<COMPARE_RESULT, std::string> VerifyValueInfo(const ONNX_NAMESPACE::ValueInfoProto& v, const OrtValue* o) {
   if (!v.has_type()) return std::make_pair(COMPARE_RESULT::SUCCESS, "");
   if (v.type().has_tensor_type()) {
     if (OrtIsTensor(o) == 0) {
@@ -331,8 +345,8 @@ std::pair<COMPARE_RESULT, std::string> VerifyValueInfo(const ONNX_NAMESPACE::Val
       ORT_THROW_ON_ERROR(OrtGetTensorShapeAndType(o, &t1));
       info.reset(t1);
     }
-    OrtTensorElementDataType real_type = OrtGetTensorElementType(info.get());
-    OrtTensorElementDataType expected_type = CApiElementTypeFromProto(t.elem_type());
+    ONNXTensorElementDataType real_type = OrtGetTensorElementType(info.get());
+    ONNXTensorElementDataType expected_type = CApiElementTypeFromProto(t.elem_type());
     if (real_type != expected_type) {
       return std::make_pair(COMPARE_RESULT::TYPE_MISMATCH, "");
     }
