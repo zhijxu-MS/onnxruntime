@@ -7,6 +7,12 @@
 #include <cassert>
 using onnxruntime::common::Status;
 
+// OrtStatus* is pointer to something like this:
+// struct OrtStatus {
+//   OrtErrorCode code;
+//   char msg[1]; // a null-terminated string, var length
+// }
+// Todo (Ryan): Compute the size using the struct.
 ORT_API(OrtStatus*, OrtCreateStatus, OrtErrorCode code, const char* msg) {
   assert(!(code == 0 && msg != nullptr));
   size_t clen = strlen(msg);
@@ -18,7 +24,7 @@ ORT_API(OrtStatus*, OrtCreateStatus, OrtErrorCode code, const char* msg) {
   memcpy(p, msg, clen);
   p += clen;
   *p = '\0';
-  return ret;
+  return reinterpret_cast<OrtStatus*>(ret);
 }
 namespace onnxruntime {
 OrtStatus* ToOrtStatus(const Status& st) {
@@ -33,7 +39,7 @@ OrtStatus* ToOrtStatus(const Status& st) {
   memcpy(p, st.ErrorMessage().c_str(), clen);
   p += clen;
   *p = '\0';
-  return ret;
+  return reinterpret_cast<OrtStatus*>(ret);
 }
 }  // namespace onnxruntime
 ORT_API(OrtErrorCode, OrtGetErrorCode, _In_ const OrtStatus* status) {
