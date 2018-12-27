@@ -60,7 +60,7 @@ bool PrepareForReduce(OpKernelContext* ctx,
   std::vector<int64_t> axes = axes_;
   if (axes.empty()) {
     // This is the default case for non-arg kind reductions. Reduce on all dimensions.
-    for (int i = 0; i < ndim; i++)
+    for (size_t i = 0; i < ndim; i++)
       axes.push_back(i);
   }
 
