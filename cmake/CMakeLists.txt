@@ -70,6 +70,15 @@ set(REPO_ROOT ${PROJECT_SOURCE_DIR}/..)
 set(ONNXRUNTIME_ROOT ${PROJECT_SOURCE_DIR}/../onnxruntime)
 file (STRINGS "${REPO_ROOT}/VERSION_NUMBER" VERSION_NUMBER)
 
+if(onnxruntime_USE_OPENMP)
+  find_package(OpenMP)
+  if (OPENMP_FOUND)
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    add_definitions(-DUSE_OPENMP)
+  endif()
+endif()
+
 if (MSVC)
   if (onnxruntime_MSVC_STATIC_RUNTIME)
     # set all of our submodules to static runtime
@@ -102,13 +111,6 @@ if (MSVC)
   #Disable 4100 globally. Too many this kind errors in protobuf
   SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4100")
 else()
-  # Enable OpenMP for Non-Windows only. WinML team disallows use of OpenMP.
-  find_package(OpenMP)
-  if (OPENMP_FOUND)
-      set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-      set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-      add_definitions(-DUSE_OPENMP)
-  endif()
   string(APPEND CMAKE_CXX_FLAGS_RELEASE " -march=native -mtune=native")
   string(APPEND CMAKE_C_FLAGS_RELEASE " -march=native -mtune=native")
   string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -march=native -mtune=native")
@@ -139,6 +141,13 @@ if(onnxruntime_BUILD_SHARED_LIB OR onnxruntime_ENABLE_PYTHON)
     find_package(PythonLibs 3.4 REQUIRED)
   endif()
 endif()
+
+#target begins from here
+#Be careful about dependencies: for c++ lib(or exe) A and B, they may have two kinds of dependencies:
+#1. in order to build A, it needs B
+#   1a: B must be built before A. In this case you should use "add_dependency" to link them. If you missed it, build may fail
+#   1b: there is no codegen in B, All the headers needed by A is already on the disk, therefore A and B can be built in parallel, Then you don't need to use "add_dependency"
+#2. A and B can be built in parallel, but A's source code uses some symbols in B and A is a static lib. Then A must be placed before B in target_link_libraries
 
 if(onnxruntime_BUILD_BENCHMARKS)
   if(NOT TARGET benchmark)
@@ -231,7 +240,10 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DGSL_UNENFORCED_ON_CONT
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DGSL_UNENFORCED_ON_CONTRACT_VIOLATION")
 
 include(eigen)
-set(onnxruntime_EXTERNAL_LIBRARIES protobuf::libprotobuf)
+#onnxruntime_EXTERNAL_LIBRARIES could contain onnx, onnx_proto,libprotobuf, cuda/cudnn, jemalloc,
+# mkldnn/mklml, openblas, onnxruntime_codegen_tvm, tvm, nnvm_compiler and pthread
+# pthread is always at the last
+set(onnxruntime_EXTERNAL_LIBRARIES onnx onnx_proto protobuf::libprotobuf tz)
 
 # gtest and gmock
 add_subdirectory(${PROJECT_SOURCE_DIR}/external/googletest EXCLUDE_FROM_ALL)
@@ -246,6 +258,8 @@ function(onnxruntime_add_include_to_target dst_target)
         target_compile_definitions(${dst_target} PRIVATE $<TARGET_PROPERTY:${src_target},INTERFACE_COMPILE_DEFINITIONS>)
     endforeach()
 endfunction()
+
+set(onnxruntime_EXTERNAL_DEPENDENCIES gsl onnx_proto)
 
 # TVM
 if (onnxruntime_USE_TVM)
@@ -270,28 +284,20 @@ if (onnxruntime_USE_TVM)
     $<TARGET_PROPERTY:nnvm_compiler,INTERFACE_INCLUDE_DIRECTORIES>)
   add_definitions(-DUSE_TVM)
 
-  set(onnxruntime_tvm_libs
-    onnxruntime_codegen_tvm
-    tvm
-    nnvm_compiler)
+  set(onnxruntime_tvm_libs onnxruntime_codegen_tvm)
+  list(APPEND onnxruntime_EXTERNAL_LIBRARIES tvm nnvm_compiler)
 
-  set(onnxruntime_tvm_dependencies
-    tvm
-    nnvm_compiler
-    onnxruntime_codegen_tvm)
+  list(APPEND onnxruntime_EXTERNAL_DEPENDENCIES tvm nnvm_compiler)
 endif()
 
 # ONNX
 add_subdirectory(onnx)
-set_target_properties(onnx PROPERTIES FOLDER "External/ONNX")
-set_target_properties(onnx_proto PROPERTIES FOLDER "External/ONNX")
+
 #set_target_properties(gen_onnx_proto PROPERTIES FOLDER "External/ONNX")
 # fix a warning in onnx code we can't do anything about
 if (MSVC)
-    target_compile_options(onnx_proto PRIVATE /wd4146) # unary minus operator applied to unsigned type
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DEIGEN_HAS_C99_MATH") # required to be set explicitly to enable Eigen-Unsupported SpecialFunctions
 endif()
-set(onnxruntime_EXTERNAL_DEPENDENCIES gsl onnx_proto)
 
 if (onnxruntime_RUN_ONNX_TESTS)
   add_definitions(-DONNXRUNTIME_RUN_EXTERNAL_ONNX_TESTS)
@@ -495,10 +501,13 @@ include(onnxruntime_common.cmake)
 include(onnxruntime_graph.cmake)
 include(onnxruntime_framework.cmake)
 include(onnxruntime_util.cmake)
+#The next file will define 'onnxruntime_libs' cmake var
 include(onnxruntime_providers.cmake)
 include(onnxruntime_session.cmake)
 include(onnxruntime_mlas.cmake)
+list(APPEND onnxruntime_EXTERNAL_LIBRARIES Threads::Threads)
 
+#The following files may use the 'onnxruntime_libs' and 'onnxruntime_EXTERNAL_LIBRARIES' vars
 
 if (onnxruntime_BUILD_SHARED_LIB)
   include(onnxruntime.cmake)

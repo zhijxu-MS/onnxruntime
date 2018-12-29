@@ -487,19 +487,8 @@ class InferenceSession::Impl {
                   });
 
     if (!missing_required_inputs.empty()) {
-      if (feeds.size() > 10)
-        return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
-                               "Missing required inputs: ", missing_required_inputs);
-      else {
-        std::ostringstream oss;
-        oss << "Missing required inputs: " << missing_required_inputs;
-        oss << ", Got [";
-        for (const auto& pair : feeds) {
-          oss << " '" << pair.first << "'";
-        }
-        oss << "]";
-        return Status(common::ONNXRUNTIME, common::INVALID_ARGUMENT, oss.str());
-      }
+      return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                             "Missing required inputs: ", missing_required_inputs);
     }
 
     bool valid = true;
@@ -708,7 +697,7 @@ class InferenceSession::Impl {
 
     void* buffer = nullptr;
     if (fetched_tensor.Shape().Size() != 0) {
-      buffer = allocator->AllocArray(fetched_tensor.DataType()->Size(), fetched_tensor.Shape().Size());
+      buffer = allocator->Alloc(fetched_tensor.DataType()->Size() * fetched_tensor.Shape().Size());
       if (!buffer)
         return Status(common::ONNXRUNTIME, common::FAIL, "invalid buffer");
     }
