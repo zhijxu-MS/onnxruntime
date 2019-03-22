@@ -582,7 +582,7 @@ def main():
 
     if (args.build):
         build_targets(cmake_path, build_dir, configs, args.parallel)
-
+    args.test = False
     if (args.test):
         run_onnxruntime_tests(args, source_dir, ctest_path, build_dir, configs, args.enable_pybind, args.use_tvm)
         # run the onnx model tests if requested explicitly.
