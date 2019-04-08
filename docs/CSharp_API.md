@@ -4,6 +4,12 @@ The ONNX runtime provides a C# .Net binding for running inference on ONNX models
 ## NuGet Package
 The Microsoft.ML.OnnxRuntime Nuget package includes the precompiled binaries for ONNX runtime, and includes libraries for Windows and Linux platforms with X64 CPUs. The APIs conform to .Net Standard 1.1.
 
+## Sample Code
+
+The unit tests contain several examples of loading models, inspecting input/output node shapes and types, as well as constructing tensors for scoring. 
+
+* [../csharp/test/Microsoft.ML.OnnxRuntime.Tests/InferenceTest.cs#L54](../csharp/test/Microsoft.ML.OnnxRuntime.Tests/InferenceTest.cs#L54)
+
 ## Getting Started
 Here is simple tutorial for getting started with running inference on an existing ONNX model for a given input data. The model is typically trained using any of the well-known training frameworks and exported into the ONNX format. To start scoring using the model, open a session using the `InferenceSession` class, passing in the file path to the model as a parameter.
     
@@ -99,14 +105,17 @@ Constructs a SessionOptions will all options at default/unset values.
 Accessor to the default static option object
 
 #### Methods
-    AppendExecutionProvider(ExecutionProvider provider);
-Appends execution provider to the session. For any operator in the graph the first execution provider that implements the operator will be user. ExecutionProvider is defined as the following enum.
+    SetSessionGraphOptimizationLevel(uint optimization_level);
+Sets the graph optimization level for the session. Default is set to 1. Available options are : {0, 1, 2}. 
+ * 0 -> Disable all optimizations
+ * 1 -> Enable basic optimizations such as redundant node removals and constant folding
+ * 2 -> Enable all optimizations (includes Level1 and more complex optimizations such as node fusions)
 
-    enum ExecutionProvider
-    {
-        Cpu,
-        MklDnn
-    }
+    EnableSequentialExecution();
+Enable Sequential Execution. By default, it is enabled.
+
+    DisableSequentialExecution();
+Disable Sequential Execution and enable Parallel Execution.
 
 ### NodeMetadata
 Container of metadata for a model graph node, used for communicating the shape and type of the input and output nodes.

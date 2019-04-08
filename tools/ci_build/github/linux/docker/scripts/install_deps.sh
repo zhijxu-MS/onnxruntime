@@ -38,8 +38,8 @@ else
   #5af210ca8a1c73aa6bae8754c9346ec54d0a756e is v1.2.3
   #bae6333e149a59a3faa9c4d9c44974373dcf5256 is v1.3.0
   #9e55ace55aad1ada27516038dfbdc66a8a0763db is v1.4.1
-  #2896c77cfc628f18b6ca6b28e3a380807fa00f53 is v1.4.1 latest
-  for onnx_version in "5af210ca8a1c73aa6bae8754c9346ec54d0a756e" "bae6333e149a59a3faa9c4d9c44974373dcf5256" "9e55ace55aad1ada27516038dfbdc66a8a0763db" "2896c77cfc628f18b6ca6b28e3a380807fa00f53"; do
+  #079c2639f9bb79b1774d1e3bfa05b0c093816ca7" is v1.4.1 latest
+  for onnx_version in "5af210ca8a1c73aa6bae8754c9346ec54d0a756e" "bae6333e149a59a3faa9c4d9c44974373dcf5256" "9e55ace55aad1ada27516038dfbdc66a8a0763db" "079c2639f9bb79b1774d1e3bfa05b0c093816ca7" ; do
     if [ -z ${lastest_onnx_version+x} ]; then
       echo "first pass";
     else
@@ -65,5 +65,7 @@ tar -jxf /tmp/src/eigen-eigen-323c052e1731.tar.bz2 -C /usr/include
 mv /usr/include/eigen-eigen-323c052e1731 /usr/include/eigen3
 
 rm -rf /tmp/src
+rm -rf /usr/include/google
+rm -rf /usr/lib/libproto*
 
 

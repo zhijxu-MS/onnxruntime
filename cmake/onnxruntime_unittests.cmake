@@ -9,7 +9,6 @@ endif()
 
 set(disabled_warnings)
 set(extra_includes)
-
 function(AddTest)
   cmake_parse_arguments(_UT "DYN" "TARGET" "LIBS;SOURCES;DEPENDS" ${ARGN})
   if(_UT_LIBS)
@@ -30,11 +29,11 @@ function(AddTest)
     add_dependencies(${_UT_TARGET} ${_UT_DEPENDS} eigen)
   endif(_UT_DEPENDS)
   if(_UT_DYN)
-    target_link_libraries(${_UT_TARGET} PRIVATE ${_UT_LIBS} gtest gmock onnxruntime Threads::Threads)
+    target_link_libraries(${_UT_TARGET} PRIVATE ${_UT_LIBS} gtest gmock onnxruntime ${CMAKE_DL_LIBS} Threads::Threads)
   else()
-    target_link_libraries(${_UT_TARGET} PRIVATE ${_UT_LIBS} gtest gmock debug ${onnxruntime_EXTERNAL_LIBRARIES_DEBUG} optimized ${onnxruntime_EXTERNAL_LIBRARIES})
+    target_link_libraries(${_UT_TARGET} PRIVATE ${_UT_LIBS} gtest gmock ${onnxruntime_EXTERNAL_LIBRARIES})
   endif()
-  onnxruntime_add_include_to_target(${_UT_TARGET} gsl eigen)
+  onnxruntime_add_include_to_target(${_UT_TARGET} date_interface gsl eigen)
   target_include_directories(${_UT_TARGET} PRIVATE ${TEST_INC_DIR})
 
   if (WIN32)
@@ -63,11 +62,6 @@ function(AddTest)
     )
 endfunction(AddTest)
 
-#Check whether C++17 header file <filesystem> is present
-include(CheckIncludeFiles)
-check_include_files("filesystem" HAS_FILESYSTEM_H LANGUAGE CXX)
-check_include_files("experimental/filesystem" HAS_EXPERIMENTAL_FILESYSTEM_H LANGUAGE CXX)
-
 #Do not add '${TEST_SRC_DIR}/util/include' to your include directories directly
 #Use onnxruntime_add_include_to_target or target_link_libraries, so that compile definitions
 #can propagate correctly.
@@ -89,8 +83,14 @@ file(GLOB onnxruntime_test_ir_src
   "${TEST_SRC_DIR}/ir/*.h"
   )
 
+file(GLOB onnxruntime_test_optimizer_src
+  "${TEST_SRC_DIR}/optimizer/*.cc"
+  "${TEST_SRC_DIR}/optimizer/*.h"
+  )
+
 set(onnxruntime_test_framework_src_patterns
   "${TEST_SRC_DIR}/framework/*.cc"
+  "${TEST_SRC_DIR}/framework/*.h"
   "${TEST_SRC_DIR}/platform/*.cc"
   )
 
@@ -105,13 +105,16 @@ if(onnxruntime_USE_CUDA)
 endif()
 
 set(onnxruntime_test_providers_src_patterns
-  "${TEST_SRC_DIR}/contrib_ops/*.h"
-  "${TEST_SRC_DIR}/contrib_ops/*.cc"
   "${TEST_SRC_DIR}/providers/*.h"
   "${TEST_SRC_DIR}/providers/*.cc"
   "${TEST_SRC_DIR}/framework/TestAllocatorManager.cc"
   "${TEST_SRC_DIR}/framework/TestAllocatorManager.h"
   )
+if(NOT onnxruntime_DISABLE_CONTRIB_OPS)
+  list(APPEND onnxruntime_test_providers_src_patterns
+    "${TEST_SRC_DIR}/contrib_ops/*.h"
+    "${TEST_SRC_DIR}/contrib_ops/*.cc")
+endif()
 
 file(GLOB onnxruntime_test_providers_src ${onnxruntime_test_providers_src_patterns})
 file(GLOB_RECURSE onnxruntime_test_providers_cpu_src
@@ -133,9 +136,16 @@ set(onnxruntime_test_ir_libs
   onnxruntime_common
 )
 
+set(onnxruntime_test_optimizer_libs
+  onnxruntime_test_utils
+  onnxruntime_framework
+  onnxruntime_util
+  onnxruntime_graph
+  onnxruntime_common
+)
+
 set(onnxruntime_test_framework_libs
   onnxruntime_test_utils_for_framework
-  onnxruntime_optimizer
   onnxruntime_framework
   onnxruntime_util
   onnxruntime_graph
@@ -146,8 +156,6 @@ set(onnxruntime_test_framework_libs
 
 if(WIN32)
     list(APPEND onnxruntime_test_framework_libs Advapi32)
-elseif(HAS_FILESYSTEM_H OR HAS_EXPERIMENTAL_FILESYSTEM_H)
-    list(APPEND onnxruntime_test_framework_libs stdc++fs)
 endif()
 
 
@@ -176,6 +184,7 @@ set(ONNXRUNTIME_TEST_LIBS
     ${onnxruntime_libs}
     ${PROVIDERS_CUDA}
     ${PROVIDERS_MKLDNN}
+    ${PROVIDERS_TENSORRT}
     onnxruntime_optimizer
     onnxruntime_providers
     onnxruntime_util
@@ -192,8 +201,11 @@ set(onnxruntime_test_providers_libs
     ${ONNXRUNTIME_TEST_LIBS}
   )
 
-if( NOT WIN32 AND (HAS_FILESYSTEM_H OR HAS_EXPERIMENTAL_FILESYSTEM_H))
-  list(APPEND onnxruntime_test_providers_libs stdc++fs)
+if(onnxruntime_USE_TENSORRT)
+  list(APPEND onnxruntime_test_framework_src_patterns  ${TEST_SRC_DIR}/providers/tensorrt/*)
+  list(APPEND onnxruntime_test_framework_libs onnxruntime_providers_tensorrt)
+  list(APPEND onnxruntime_test_providers_dependencies onnxruntime_providers_tensorrt)
+  list(APPEND onnxruntime_test_providers_libs onnxruntime_providers_tensorrt)
 endif()
 
 if(WIN32)
@@ -207,20 +219,27 @@ file(GLOB onnxruntime_test_framework_src ${onnxruntime_test_framework_src_patter
 #with auto initialize onnxruntime
 add_library(onnxruntime_test_utils_for_framework ${onnxruntime_test_utils_src})
 onnxruntime_add_include_to_target(onnxruntime_test_utils_for_framework onnxruntime_framework gtest gsl onnx onnx_proto)
+if (onnxruntime_USE_MKLDNN)
+  target_compile_definitions(onnxruntime_test_utils_for_framework PUBLIC USE_MKLDNN=1)
+endif()
 add_dependencies(onnxruntime_test_utils_for_framework ${onnxruntime_EXTERNAL_DEPENDENCIES} eigen)
 target_include_directories(onnxruntime_test_utils_for_framework PUBLIC "${TEST_SRC_DIR}/util/include" PRIVATE ${eigen_INCLUDE_DIRS} ${ONNXRUNTIME_ROOT})
 # Add the define for conditionally using the framework Environment class in TestEnvironment
 target_compile_definitions(onnxruntime_test_utils_for_framework PUBLIC "HAVE_FRAMEWORK_LIB")
+set_target_properties(onnxruntime_test_utils_for_framework PROPERTIES FOLDER "ONNXRuntimeTest")
 
 #without auto initialize onnxruntime
 add_library(onnxruntime_test_utils ${onnxruntime_test_utils_src})
 onnxruntime_add_include_to_target(onnxruntime_test_utils onnxruntime_framework gtest gsl onnx onnx_proto)
+if (onnxruntime_USE_MKLDNN)
+  target_compile_definitions(onnxruntime_test_utils PUBLIC USE_MKLDNN=1)
+endif()
 add_dependencies(onnxruntime_test_utils ${onnxruntime_EXTERNAL_DEPENDENCIES} eigen)
 target_include_directories(onnxruntime_test_utils PUBLIC "${TEST_SRC_DIR}/util/include" PRIVATE ${eigen_INCLUDE_DIRS} ${ONNXRUNTIME_ROOT})
-
+set_target_properties(onnxruntime_test_utils PROPERTIES FOLDER "ONNXRuntimeTest")
 
 if (SingleUnitTestProject)
-  set(all_tests ${onnxruntime_test_common_src} ${onnxruntime_test_ir_src} ${onnxruntime_test_framework_src} ${onnxruntime_test_providers_src})
+  set(all_tests ${onnxruntime_test_common_src} ${onnxruntime_test_ir_src} ${onnxruntime_test_optimizer_src} ${onnxruntime_test_framework_src} ${onnxruntime_test_providers_src})
   set(all_dependencies ${onnxruntime_test_providers_dependencies} )
 
   if (onnxruntime_USE_TVM)
@@ -267,6 +286,13 @@ else()
   )
 
   AddTest(
+    TARGET onnxruntime_test_optimizer
+    SOURCES ${onnxruntime_test_optimizer_src}
+    LIBS ${onnxruntime_test_optimizer_libs}
+    DEPENDS ${onnxruntime_EXTERNAL_DEPENDENCIES}
+  )
+
+  AddTest(
     TARGET onnxruntime_test_framework
     SOURCES ${onnxruntime_test_framework_src}
     LIBS ${onnxruntime_test_framework_libs}
@@ -286,12 +312,15 @@ endif()  # SingleUnitTestProject
 
 # standalone test for inference session without environment
 # the normal test executables set up a default runtime environment, which we don't want here
+if(NOT ipo_enabled)
+  #TODO: figure out why this test doesn't work with gcc LTO
 AddTest(
   TARGET onnxruntime_test_framework_session_without_environment_standalone
   SOURCES "${TEST_SRC_DIR}/framework/inference_session_without_environment/inference_session_without_environment_standalone_test.cc" "${TEST_SRC_DIR}/framework/test_main.cc"
   LIBS  onnxruntime_test_utils ${ONNXRUNTIME_TEST_LIBS}
   DEPENDS ${onnxruntime_EXTERNAL_DEPENDENCIES}
 )
+endif()
 
 #
 # onnxruntime_ir_graph test data
@@ -310,7 +339,7 @@ if(WIN32)
     list(APPEND onnx_test_libs mkldnn)
     add_custom_command(
       TARGET ${test_data_target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy ${MKLDNN_LIB_DIR}/${MKLDNN_SHARED_LIB} $<TARGET_FILE_DIR:${test_data_target}>
+      COMMAND ${CMAKE_COMMAND} -E copy ${MKLDNN_DLL_PATH} $<TARGET_FILE_DIR:${test_data_target}>
       )
   endif()
   if (onnxruntime_USE_MKLML)
@@ -348,11 +377,13 @@ set(onnx_test_runner_common_srcs
   ${onnx_test_runner_src_dir}/TestCaseResult.cc
   ${onnx_test_runner_src_dir}/TestCaseResult.h
   ${onnx_test_runner_src_dir}/testenv.cc
+  ${onnx_test_runner_src_dir}/heap_buffer.h
+  ${onnx_test_runner_src_dir}/heap_buffer.cc
+  ${onnx_test_runner_src_dir}/OrtValueList.h
   ${onnx_test_runner_src_dir}/runner.h
   ${onnx_test_runner_src_dir}/runner.cc
   ${onnx_test_runner_src_dir}/TestCase.cc
   ${onnx_test_runner_src_dir}/TestCase.h
-  ${onnx_test_runner_src_dir}/path_lib.h
   ${onnx_test_runner_src_dir}/sync_api.h
   ${onnx_test_runner_src_dir}/sync_api.cc)
 
@@ -361,20 +392,10 @@ if(WIN32)
   add_library(win_getopt_wide ${wide_get_opt_src_dir}/getopt.cc ${wide_get_opt_src_dir}/include/getopt.h)
   target_include_directories(win_getopt_wide INTERFACE ${wide_get_opt_src_dir}/include)
   set_target_properties(win_getopt_wide PROPERTIES FOLDER "ONNXRuntimeTest")
-  set(mb_get_opt_src_dir ${TEST_SRC_DIR}/win_getopt/mb)
-  add_library(win_getopt_mb ${mb_get_opt_src_dir}/getopt.cc ${mb_get_opt_src_dir}/include/getopt.h)
-  target_include_directories(win_getopt_mb INTERFACE ${mb_get_opt_src_dir}/include)
-  set_target_properties(win_getopt_mb PROPERTIES FOLDER "ONNXRuntimeTest")
-
   set(onnx_test_runner_common_srcs ${onnx_test_runner_common_srcs})
-
   set(GETOPT_LIB_WIDE win_getopt_wide)
-  set(GETOPT_LIB win_getopt_mb)
 else()
   set(onnx_test_runner_common_srcs ${onnx_test_runner_common_srcs} ${onnx_test_runner_src_dir}/onnxruntime_event.h ${onnx_test_runner_src_dir}/simple_thread_pool.h)
-  if(HAS_FILESYSTEM_H OR HAS_EXPERIMENTAL_FILESYSTEM_H)
-    set(FS_STDLIB stdc++fs)
-  endif()
 endif()
 
 add_library(onnx_test_runner_common ${onnx_test_runner_common_srcs})
@@ -383,18 +404,12 @@ add_dependencies(onnx_test_runner_common eigen onnx_test_data_proto ${onnxruntim
 target_include_directories(onnx_test_runner_common PRIVATE ${eigen_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/onnx ${ONNXRUNTIME_ROOT})
 set_target_properties(onnx_test_runner_common PROPERTIES FOLDER "ONNXRuntimeTest")
 
-
 set(onnx_test_libs
   onnxruntime_test_utils
   ${ONNXRUNTIME_TEST_LIBS}
   onnx_test_data_proto)
 
-if(WIN32)
-  list(APPEND onnx_test_libs Pathcch)
-endif()
-
-list(APPEND onnx_test_libs ${FS_STDLIB} debug ${onnxruntime_EXTERNAL_LIBRARIES_DEBUG} optimized ${onnxruntime_EXTERNAL_LIBRARIES})
-
+list(APPEND onnx_test_libs ${onnxruntime_EXTERNAL_LIBRARIES} libprotobuf) # test code uses delimited parsing and hence needs to link with the full protobuf
 
 add_executable(onnx_test_runner ${onnx_test_runner_src_dir}/main.cc)
 target_link_libraries(onnx_test_runner PRIVATE onnx_test_runner_common ${GETOPT_LIB_WIDE} ${onnx_test_libs})
@@ -407,10 +422,14 @@ install(TARGETS onnx_test_runner
         LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-if(onnxruntime_BUILD_BENCHMARKS AND (HAS_FILESYSTEM_H OR HAS_EXPERIMENTAL_FILESYSTEM_H))
-  add_executable(onnxruntime_benchmark ${TEST_SRC_DIR}/onnx/microbenchmark/main.cc ${TEST_SRC_DIR}/onnx/microbenchmark/modeltest.cc)
+if(onnxruntime_BUILD_BENCHMARKS)
+  add_executable(onnxruntime_benchmark ${TEST_SRC_DIR}/onnx/microbenchmark/main.cc ${TEST_SRC_DIR}/onnx/microbenchmark/modeltest.cc ${TEST_SRC_DIR}/onnx/microbenchmark/model_init.cc)
   target_include_directories(onnxruntime_benchmark PRIVATE ${ONNXRUNTIME_ROOT} ${onnxruntime_graph_header} benchmark)
-  target_compile_options(onnxruntime_benchmark PRIVATE "/wd4141")
+  onnxruntime_add_include_to_target(onnxruntime_benchmark gsl)
+  if(WIN32)
+    target_compile_options(onnxruntime_benchmark PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler /wd4141>"
+                      "$<$<NOT:$<COMPILE_LANGUAGE:CUDA>>:/wd4141>")
+  endif()
   target_link_libraries(onnxruntime_benchmark PRIVATE onnx_test_runner_common benchmark ${onnx_test_libs})
   add_dependencies(onnxruntime_benchmark ${onnxruntime_EXTERNAL_DEPENDENCIES})
   set_target_properties(onnxruntime_benchmark PROPERTIES FOLDER "ONNXRuntimeTest")
@@ -425,50 +444,42 @@ add_test(NAME onnx_test_pytorch_converted
 add_test(NAME onnx_test_pytorch_operator
   COMMAND onnx_test_runner ${PROJECT_SOURCE_DIR}/external/onnx/onnx/backend/test/data/pytorch-operator)
 
-if(HAS_FILESYSTEM_H OR HAS_EXPERIMENTAL_FILESYSTEM_H)
-  set(onnxruntime_perf_test_src_dir ${TEST_SRC_DIR}/perftest)
-  set(onnxruntime_perf_test_src_patterns
-    "${onnxruntime_perf_test_src_dir}/*.cc"
-    "${onnxruntime_perf_test_src_dir}/*.h")
+set(onnxruntime_perf_test_src_dir ${TEST_SRC_DIR}/perftest)
+set(onnxruntime_perf_test_src_patterns
+"${onnxruntime_perf_test_src_dir}/*.cc"
+"${onnxruntime_perf_test_src_dir}/*.h")
 
-  if(WIN32)
-    list(APPEND onnxruntime_perf_test_src_patterns
-      "${onnxruntime_perf_test_src_dir}/windows/*.cc"
-      "${onnxruntime_perf_test_src_dir}/windows/*.h" )
-  else ()
-    list(APPEND onnxruntime_perf_test_src_patterns
-      "${onnxruntime_perf_test_src_dir}/posix/*.cc"
-      "${onnxruntime_perf_test_src_dir}/posix/*.h" )
-  endif()
-
-  file(GLOB onnxruntime_perf_test_src ${onnxruntime_perf_test_src_patterns})
-  add_executable(onnxruntime_perf_test ${onnxruntime_perf_test_src})
-
-  target_include_directories(onnxruntime_perf_test PRIVATE ${ONNXRUNTIME_ROOT} ${eigen_INCLUDE_DIRS} ${extra_includes} ${onnxruntime_graph_header} ${onnxruntime_exec_src_dir} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/onnx)
-  if (WIN32)
-    target_compile_options(onnxruntime_perf_test PRIVATE ${disabled_warnings})
-  endif()
-  onnxruntime_add_include_to_target(onnxruntime_perf_test gsl)
-  target_link_libraries(onnxruntime_perf_test PRIVATE ${GETOPT_LIB} ${onnx_test_libs})
-  set_target_properties(onnxruntime_perf_test PROPERTIES FOLDER "ONNXRuntimeTest")
+if(WIN32)
+  list(APPEND onnxruntime_perf_test_src_patterns
+    "${onnxruntime_perf_test_src_dir}/windows/*.cc"
+    "${onnxruntime_perf_test_src_dir}/windows/*.h" )
+else ()
+  list(APPEND onnxruntime_perf_test_src_patterns
+    "${onnxruntime_perf_test_src_dir}/posix/*.cc"
+    "${onnxruntime_perf_test_src_dir}/posix/*.h" )
 endif()
+
+file(GLOB onnxruntime_perf_test_src ${onnxruntime_perf_test_src_patterns})
+add_executable(onnxruntime_perf_test ${onnxruntime_perf_test_src})
+
+target_include_directories(onnxruntime_perf_test PRIVATE ${onnx_test_runner_src_dir} ${ONNXRUNTIME_ROOT}
+        ${eigen_INCLUDE_DIRS} ${extra_includes} ${onnxruntime_graph_header} ${onnxruntime_exec_src_dir}
+        ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/onnx)
+if (WIN32)
+  target_compile_options(onnxruntime_perf_test PRIVATE ${disabled_warnings})
+endif()
+onnxruntime_add_include_to_target(onnxruntime_perf_test gsl)
+target_link_libraries(onnxruntime_perf_test PRIVATE onnx_test_runner_common ${GETOPT_LIB_WIDE} ${onnx_test_libs})
+set_target_properties(onnxruntime_perf_test PROPERTIES FOLDER "ONNXRuntimeTest")
 
 # shared lib
 if (onnxruntime_BUILD_SHARED_LIB)
-  if (UNIX)
-    # test custom op shared lib
-    file(GLOB onnxruntime_custom_op_shared_lib_test_srcs "${ONNXRUNTIME_ROOT}/test/custom_op_shared_lib/test_custom_op.cc")
-    add_library(onnxruntime_custom_op_shared_lib_test SHARED ${onnxruntime_custom_op_shared_lib_test_srcs})
-    onnxruntime_add_include_to_target(onnxruntime_custom_op_shared_lib_test gsl)
-    add_dependencies(onnxruntime_custom_op_shared_lib_test onnx_proto ${onnxruntime_EXTERNAL_DEPENDENCIES})
-    target_include_directories(onnxruntime_custom_op_shared_lib_test PUBLIC "${PROJECT_SOURCE_DIR}/include")
-    target_link_libraries(onnxruntime_custom_op_shared_lib_test PRIVATE onnxruntime onnx onnx_proto  protobuf::libprotobuf)
-    set_target_properties(onnxruntime_custom_op_shared_lib_test PROPERTIES FOLDER "ONNXRuntimeSharedLibTest")
-  endif()
   add_library(onnxruntime_mocked_allocator ${ONNXRUNTIME_ROOT}/test/util/test_allocator.cc)
   target_include_directories(onnxruntime_mocked_allocator PUBLIC ${ONNXRUNTIME_ROOT}/test/util/include)
+  set_target_properties(onnxruntime_mocked_allocator PROPERTIES FOLDER "ONNXRuntimeTest")
+
   #################################################################
-  # test inference using shared lib + custom op
+  # test inference using shared lib
   set (ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR "${ONNXRUNTIME_ROOT}/test/shared_lib")
   set (onnxruntime_shared_lib_test_SRC
           ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_fixture.h
@@ -476,19 +487,33 @@ if (onnxruntime_BUILD_SHARED_LIB)
           ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_session_options.cc
           ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_run_options.cc
           ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_allocator.cc
-          ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_inference.cc)
+          ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_nontensor_types.cc)
   if(onnxruntime_RUN_ONNX_TESTS)
     list(APPEND onnxruntime_shared_lib_test_SRC ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_io_types.cc)
+  endif()
+  if (NOT(${CMAKE_SYSTEM_NAME} MATCHES "Darwin"))
+    #for some reason, these tests are failing. Need investigation.
+    list(APPEND onnxruntime_shared_lib_test_SRC ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_tensor_loader.cc)
+    if (onnxruntime_USE_FULL_PROTOBUF)
+      list(APPEND onnxruntime_shared_lib_test_SRC ${ONNXRUNTIME_SHARED_LIB_TEST_SRC_DIR}/test_model_loading.cc)
+    endif()
+  endif()
+  set(onnxruntime_shared_lib_test_LIBS onnxruntime_mocked_allocator onnxruntime_test_utils onnxruntime_common
+          onnx_proto)
+  if(onnxruntime_USE_NSYNC)
+    list(APPEND onnxruntime_shared_lib_test_LIBS nsync_cpp)
   endif()
   AddTest(DYN
           TARGET onnxruntime_shared_lib_test
           SOURCES ${onnxruntime_shared_lib_test_SRC}
-          LIBS onnxruntime_mocked_allocator
+          LIBS ${onnxruntime_shared_lib_test_LIBS}
+          protobuf::libprotobuf
           DEPENDS ${all_dependencies}
   )
-
   #demo
-  if(PNG_FOUND)
+  message("PNG Lib Dir = ${PNG_LIBRARIES}")
+  message("PNG Include Dir = ${PNG_INCLUDE_DIRS}")
+  if(PNG_FOUND AND NOT WIN32) # for some reason some symbols are not found in Win32 PNG module
     add_executable(fns_candy_style_transfer "${ONNXRUNTIME_ROOT}/test/shared_lib/fns_candy_style_transfer.c")
     target_include_directories(fns_candy_style_transfer PRIVATE "${TEST_SRC_DIR}/util/include" ${PNG_INCLUDE_DIRS})
     target_link_libraries(fns_candy_style_transfer PRIVATE onnxruntime ${PNG_LIBRARIES})

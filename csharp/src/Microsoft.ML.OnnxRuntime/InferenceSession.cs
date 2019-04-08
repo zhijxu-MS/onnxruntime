@@ -137,15 +137,15 @@ namespace Microsoft.ML.OnnxRuntime
             var inputTensors = new IntPtr[inputs.Count];
             var pinnedBufferHandles = new System.Buffers.MemoryHandle[inputs.Count];
 
-            int offset = 0;
+            int inputIndex = 0;
             foreach (var input in inputs)
             {
-                inputNames[offset] = input.Name;
+                inputNames[inputIndex] = input.Name;
 
                 // create Tensor from the input if feasible, else throw notsupported exception for now
-                input.ToNativeOnnxValue(out inputTensors[offset], out pinnedBufferHandles[offset]);
+                input.ToNativeOnnxValue(out inputTensors[inputIndex], out pinnedBufferHandles[inputIndex]);
 
-                offset++;
+                inputIndex++;
             }
 
             string[] outputNamesArray = outputNames.ToArray();
@@ -169,7 +169,7 @@ namespace Microsoft.ML.OnnxRuntime
                 var result = new DisposableList<DisposableNamedOnnxValue>();
                 for (uint i = 0; i < outputValueArray.Length; i++)
                 {
-                    result.Add(DisposableNamedOnnxValue.CreateFromOnnxValue(outputNamesArray[i], outputValueArray[i]));  
+                    result.Add(DisposableNamedOnnxValue.CreateFromOnnxValue(outputNamesArray[i], outputValueArray[i]));
                 }
 
                 return result;
@@ -297,10 +297,19 @@ namespace Microsoft.ML.OnnxRuntime
             }
         }
 
-        private NodeMetadata GetMetadataFromTypeInfo(IntPtr typeInfo)
+        internal static NodeMetadata GetMetadataFromTypeInfo(IntPtr typeInfo)
         {
+            var valueType = NativeMethods.OrtOnnxTypeFromTypeInfo(typeInfo);
+            if (valueType != OnnxValueType.ONNX_TYPE_TENSOR && valueType != OnnxValueType.ONNX_TYPE_SPARSETENSOR)
+            {
+                return new NodeMetadata(valueType, new int[] { }, typeof(NamedOnnxValue));
+            }
+
             IntPtr tensorInfo = NativeMethods.OrtCastTypeInfoToTensorInfo(typeInfo);
-                    // Convert the newly introduced OrtTypeInfo* to the older OrtTypeAndShapeInfo* 
+            // Convert the newly introduced OrtTypeInfo* to the older OrtTypeAndShapeInfo*
+
+            if (tensorInfo == IntPtr.Zero)
+                return null;
 
             TensorElementType type = NativeMethods.OrtGetTensorElementType(tensorInfo);
             Type dotnetType = null;
@@ -314,7 +323,7 @@ namespace Microsoft.ML.OnnxRuntime
             {
                 intDimensions[i] = (int)dimensions[i];
             }
-            return new NodeMetadata(intDimensions, dotnetType);
+            return new NodeMetadata(valueType, intDimensions, dotnetType);
         }
 
         #endregion
@@ -357,13 +366,23 @@ namespace Microsoft.ML.OnnxRuntime
     /// </summary>
     public class NodeMetadata
     {
+        private OnnxValueType _onnxValueType;
         private int[] _dimensions;
         private Type _type;
 
-        internal NodeMetadata(int[] dimensions, Type type)
+        internal NodeMetadata(OnnxValueType onnxValueType, int[] dimensions, Type type)
         {
+            _onnxValueType = onnxValueType;
             _dimensions = dimensions;
             _type = type;
+        }
+
+        public OnnxValueType OnnxValueType
+        {
+            get
+            {
+                return _onnxValueType;
+            }
         }
 
         public int[] Dimensions

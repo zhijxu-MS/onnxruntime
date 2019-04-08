@@ -12,6 +12,7 @@
 
 namespace onnxruntime {
 class ExecutionProviders;
+class FeedsFetchesManager;
 class Graph;
 class KernelDef;
 class KernelRegistryManager;
@@ -25,8 +26,6 @@ class Logger;
 }
 
 namespace utils {
-const KernelDef* GetKernelDef(const KernelRegistryManager& kernel_registry,
-                              const onnxruntime::Node& node);
 
 AllocatorPtr GetAllocator(const ExecutionProviders& exec_providers, const OrtAllocatorInfo& allocator_info);
 
@@ -44,55 +43,59 @@ common::Status CopyOneInputAcrossDevices(const SessionState& session_state,
                                          const MLValue& orig_mlvalue,
                                          MLValue& new_mlvalue);
 
-common::Status CopyInputsAcrossDevices(const SessionState& session_state,
-                                       const NameMLValMap& orig_feeds,
-                                       NameMLValMap& new_feeds);
-
-common::Status MatchOutputsWithProviders(const SessionState& session_state,
-                                         const std::vector<std::string>& output_names,
-                                         std::vector<MLValue>& fetches,
-                                         std::vector<MLValue>& new_fetches);
-
-common::Status CopyOutputsAcrossDevices(const SessionState& session_state,
-                                        std::vector<MLValue>& fetches,
-                                        std::vector<MLValue>& user_fetches);
-
+// ExecuteGraph, writing cache info to FeedsFetchesManager to optimize feed and fetch usage across invocations when the
+// order and location of the feeds and fetches is unchanged.
 common::Status ExecuteGraph(const SessionState& session_state,
-                            const NameMLValMap& feeds,
-                            const std::vector<std::string>& output_names,
+                            FeedsFetchesManager& feeds_fetches_manager,
+                            const std::vector<MLValue>& feeds,
                             std::vector<MLValue>& fetches,
                             const std::unordered_map<size_t, IExecutor::CustomAllocator>& fetch_allocators,
                             bool sequential_execution,
                             const bool& terminate_flag,
-                            const logging::Logger& logger);
+                            const logging::Logger& logger,
+                            bool cache_copy_info = true);
 
-#define DispatchOnTensorType(tensor_type, function, ...)      \
-  if (tensor_type == DataTypeImpl::GetType<float>())          \
-    function<float>(__VA_ARGS__);                             \
-  else if (tensor_type == DataTypeImpl::GetType<double>())    \
-    function<double>(__VA_ARGS__);                            \
-  else if (tensor_type == DataTypeImpl::GetType<int8_t>())    \
-    function<int8_t>(__VA_ARGS__);                            \
-  else if (tensor_type == DataTypeImpl::GetType<int16_t>())   \
-    function<int16_t>(__VA_ARGS__);                           \
-  else if (tensor_type == DataTypeImpl::GetType<int32_t>())   \
-    function<int32_t>(__VA_ARGS__);                           \
-  else if (tensor_type == DataTypeImpl::GetType<int64_t>())   \
-    function<int64_t>(__VA_ARGS__);                           \
-  else if (tensor_type == DataTypeImpl::GetType<uint8_t>())   \
-    function<uint8_t>(__VA_ARGS__);                           \
-  else if (tensor_type == DataTypeImpl::GetType<uint16_t>())  \
-    function<uint16_t>(__VA_ARGS__);                          \
-  else if (tensor_type == DataTypeImpl::GetType<uint32_t>())  \
-    function<uint32_t>(__VA_ARGS__);                          \
-  else if (tensor_type == DataTypeImpl::GetType<uint64_t>())  \
-    function<uint64_t>(__VA_ARGS__);                          \
-  else if (tensor_type == DataTypeImpl::GetType<bool>())      \
-    function<bool>(__VA_ARGS__);                              \
-  else if (tensor_type == DataTypeImpl::GetType<MLFloat16>()) \
-    function<MLFloat16>(__VA_ARGS__);                         \
-  else if (tensor_type == DataTypeImpl::GetType<BFloat16>())  \
-  function<BFloat16>(__VA_ARGS__)
+// ExecuteGraph used the cached information in feeds_fetches_manager.
+common::Status ExecuteGraphWithCachedInfo(const SessionState& session_state,
+                                          const FeedsFetchesManager& feeds_fetches_manager,
+                                          const std::vector<MLValue>& feeds,
+                                          std::vector<MLValue>& fetches,
+                                          const std::unordered_map<size_t, IExecutor::CustomAllocator>& fetch_allocators,
+                                          bool sequential_execution,
+                                          const bool& terminate_flag,
+                                          const logging::Logger& logger);
+
+#define DispatchOnTensorType(tensor_type, function, ...)        \
+  if (tensor_type == DataTypeImpl::GetType<float>())            \
+    function<float>(__VA_ARGS__);                               \
+  else if (tensor_type == DataTypeImpl::GetType<double>())      \
+    function<double>(__VA_ARGS__);                              \
+  else if (tensor_type == DataTypeImpl::GetType<int8_t>())      \
+    function<int8_t>(__VA_ARGS__);                              \
+  else if (tensor_type == DataTypeImpl::GetType<int16_t>())     \
+    function<int16_t>(__VA_ARGS__);                             \
+  else if (tensor_type == DataTypeImpl::GetType<int32_t>())     \
+    function<int32_t>(__VA_ARGS__);                             \
+  else if (tensor_type == DataTypeImpl::GetType<int64_t>())     \
+    function<int64_t>(__VA_ARGS__);                             \
+  else if (tensor_type == DataTypeImpl::GetType<uint8_t>())     \
+    function<uint8_t>(__VA_ARGS__);                             \
+  else if (tensor_type == DataTypeImpl::GetType<uint16_t>())    \
+    function<uint16_t>(__VA_ARGS__);                            \
+  else if (tensor_type == DataTypeImpl::GetType<uint32_t>())    \
+    function<uint32_t>(__VA_ARGS__);                            \
+  else if (tensor_type == DataTypeImpl::GetType<uint64_t>())    \
+    function<uint64_t>(__VA_ARGS__);                            \
+  else if (tensor_type == DataTypeImpl::GetType<bool>())        \
+    function<bool>(__VA_ARGS__);                                \
+  else if (tensor_type == DataTypeImpl::GetType<MLFloat16>())   \
+    function<MLFloat16>(__VA_ARGS__);                           \
+  else if (tensor_type == DataTypeImpl::GetType<BFloat16>())    \
+    function<BFloat16>(__VA_ARGS__);                            \
+  else if (tensor_type == DataTypeImpl::GetType<std::string>()) \
+    function<std::string>(__VA_ARGS__);                         \
+  else                                                          \
+    ORT_ENFORCE(false, "Unknown tensor type of ", tensor_type)
 
 #define DispatchOnTensorTypeWithReturn(tensor_type, retval, function, ...) \
   if (tensor_type == DataTypeImpl::GetType<float>())                       \
@@ -120,7 +123,11 @@ common::Status ExecuteGraph(const SessionState& session_state,
   else if (tensor_type == DataTypeImpl::GetType<MLFloat16>())              \
     retval = function<MLFloat16>(__VA_ARGS__);                             \
   else if (tensor_type == DataTypeImpl::GetType<BFloat16>())               \
-  retval = function<BFloat16>(__VA_ARGS__)
+    retval = function<BFloat16>(__VA_ARGS__);                              \
+  else if (tensor_type == DataTypeImpl::GetType<std::string>())            \
+    retval = function<std::string>(__VA_ARGS__);                           \
+  else                                                                     \
+    ORT_ENFORCE(false, "Unknown tensor type of ", tensor_type)
 
 }  // namespace utils
 }  // namespace onnxruntime

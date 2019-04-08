@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "core/framework/tensorutils.h"
+#include "core/framework/tensorprotoutils.h"
 #include "core/providers/cpu/generator/constant_of_shape.h"
 #include "gsl/span"
 
@@ -29,11 +29,12 @@ ONNX_CPU_OPERATOR_KERNEL(
                                   DataTypeImpl::GetTensorType<bool>()}),
     ConstantOfShape);
 
-#define FETCH_VALUE_DATA(field, c_type)                                                                \
-  {                                                                                                    \
-    c_type t;                                                                                          \
-    ORT_ENFORCE(TensorUtils::UnpackTensor(t_proto, &t, 1).IsOK(), "Value attribute unpacking failed"); \
-    field = t;                                                                                         \
+#define FETCH_VALUE_DATA(field, c_type)                                                                   \
+  {                                                                                                       \
+    c_type t;                                                                                             \
+    auto unpack_status = UnpackTensor(t_proto, raw_data, raw_data_len, &t, 1);                            \
+    ORT_ENFORCE(unpack_status.IsOK(), "Value attribute unpacking failed:", unpack_status.ErrorMessage()); \
+    field = t;                                                                                            \
   }
 
 void onnxruntime::ConstantOfShape::SetValue(const ONNX_NAMESPACE::TensorProto& t_proto) {
@@ -41,7 +42,8 @@ void onnxruntime::ConstantOfShape::SetValue(const ONNX_NAMESPACE::TensorProto& t
   ORT_ENFORCE(t_proto.has_data_type());
   ORT_ENFORCE(TensorProto::DataType_IsValid(t_proto.data_type()));
   tensor_type_ = static_cast<TensorProto_DataType>(t_proto.data_type());
-
+  const void* const raw_data = t_proto.has_raw_data() ? t_proto.raw_data().data() : nullptr;
+  const size_t raw_data_len = t_proto.has_raw_data() ? t_proto.raw_data().size() : 0;
   switch (tensor_type_) {
     case TensorProto::BOOL:
       FETCH_VALUE_DATA(value_.ui64_, bool);
@@ -80,7 +82,7 @@ void onnxruntime::ConstantOfShape::SetValue(const ONNX_NAMESPACE::TensorProto& t
       FETCH_VALUE_DATA(value_.ui64_, uint64_t);
       break;
     default:
-      ORT_THROW("Unsupported value attribute datatype: ", TensorProto::DataType_Name(tensor_type_));
+      ORT_THROW("Unsupported value attribute datatype: ", tensor_type_);
       break;
   }
 }
@@ -142,7 +144,7 @@ void onnxruntime::ConstantOfShape::DispatchTypeAndFillOutput(Tensor* output_tens
       FilloutOutput(value_.GetFromUnsigned<uint64_t>(), output_tensor);
       break;
     default:
-      ORT_THROW("Unsupported value attribute datatype: ", TensorProto::DataType_Name(tensor_type_));
+      ORT_THROW("Unsupported value attribute datatype: ", tensor_type_);
       break;
   }
 }

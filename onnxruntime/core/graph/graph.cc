@@ -152,8 +152,8 @@ common::Status NodeArg::UpdateTypeAndShape(const ONNX_NAMESPACE::TypeProto& inpu
 
       if (input_tensor_elem_type != current_tensor_elem_type)
         return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "Tensor element type mismatch. ",
-                               TensorProto_DataType_Name(static_cast<TensorProto_DataType>(input_tensor_elem_type)), " != ",
-                               TensorProto_DataType_Name(static_cast<TensorProto_DataType>(current_tensor_elem_type)));
+                               static_cast<TensorProto_DataType>(input_tensor_elem_type), " != ",
+                               static_cast<TensorProto_DataType>(current_tensor_elem_type));
 
       if (input_tensor_type.has_shape()) {
         auto& current_tensor_type = *current_type.mutable_tensor_type();
@@ -172,8 +172,8 @@ common::Status NodeArg::UpdateTypeAndShape(const ONNX_NAMESPACE::TypeProto& inpu
       const auto current_tensor_elem_type = current_type.sparse_tensor_type().elem_type();
       if (input_tensor_elem_type != current_tensor_elem_type) {
         return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "SparseTensor element type mismatch. ",
-                               TensorProto_DataType_Name(static_cast<TensorProto_DataType>(input_tensor_elem_type)), " != ",
-                               TensorProto_DataType_Name(static_cast<TensorProto_DataType>(current_tensor_elem_type)));
+                               static_cast<TensorProto_DataType>(input_tensor_elem_type), " != ",
+                               static_cast<TensorProto_DataType>(current_tensor_elem_type));
       }
       if (input_tensor_type.has_shape()) {
         auto& current_tensor_type = *current_type.mutable_sparse_tensor_type();
@@ -658,6 +658,18 @@ Graph::Graph(GraphProto* graph_proto,
     // Copy initial tensors to a map.
     for (auto& tensor : graph_proto_->initializer()) {
       name_to_initial_tensor_[tensor.name()] = &tensor;
+
+      // v4 does not require initializers to be inputs, so we need to ensure there is a NodeArg created for all
+      // initializers in that case
+      if (ir_version > 3) {
+        TypeProto t;
+        t.mutable_tensor_type()->set_elem_type(tensor.data_type());
+        auto shape = t.mutable_tensor_type()->mutable_shape();
+        for (auto dim : tensor.dims())
+          shape->add_dim()->set_dim_value(dim);
+
+        GetOrCreateNodeArg(tensor.name(), &t);
+      }
     }
 
     // Collect all node arg name, type, shape information in the graph.
@@ -869,10 +881,11 @@ void Graph::RemoveEdge(NodeIndex src_node_index, NodeIndex dst_node_index, int s
   if (nullptr == dst_arg) {
     ORT_THROW("Invalid destination node arg slot specified when removing edge.");
   }
+
   if (src_arg != dst_arg) {
     // The edge ends specified by source and destination arg slot are not referring to same node arg.
     // It means there was no edge between these two slots before.
-    ORT_THROW("Argument type mismatch when removing edge.");
+    ORT_THROW("Argument mismatch when removing edge.");
   }
 
   nodes_[dst_node_index]->MutableRelationships().input_edges.erase(Node::EdgeEnd(*nodes_[src_node_index], src_arg_slot, dst_arg_slot));
@@ -886,6 +899,8 @@ Status Graph::BuildConnections(std::vector<std::string>& outer_scope_node_args_c
 
   // recurse into subgraphs first so we can update any nodes in this graph that are used by those subgraphs
   if (!resolve_context_.nodes_with_subgraphs.empty()) {
+    const bool loaded_from_model_file = GraphLoadedFromModelFile(graph_proto_);
+
     for (auto* node : resolve_context_.nodes_with_subgraphs) {
       for (auto& subgraph : node->MutableSubgraphs()) {
         std::vector<std::string> node_args_consumed;
@@ -937,6 +952,17 @@ Status Graph::BuildConnections(std::vector<std::string>& outer_scope_node_args_c
             AddEdge(output_node.Index(), node->Index(), entry->second.second, input_slot_index);
 
             inner_nodes.insert(&output_node);
+            
+            // If this Graph was built manually, remove the implicit input from the graph outputs if it is present there
+            // and not explicitly listed in the ordered graph outputs (as that implies we should leave it as an output).
+            // If the Graph was loaded from a GraphProto, honor the explicit graph outputs and leave as is.
+            if (!loaded_from_model_file) {
+              auto in_ordered_graph_outputs = find(graph_output_order_.cbegin(), graph_output_order_.cend(), node_arg);
+              if (in_ordered_graph_outputs == graph_output_order_.cend()) {
+                graph_outputs_.erase(std::remove(graph_outputs_.begin(), graph_outputs_.end(), node_arg),
+                                     graph_outputs_.end());
+              }
+            }
           }
         }
       }
@@ -1625,6 +1651,10 @@ Status Graph::VerifyNodeAndOpMatch() {
   lsc.output_names.insert(resolve_context_.outer_scope_node_args.cbegin(),
                           resolve_context_.outer_scope_node_args.cend());
 
+  // we may have some locally defined outer scope args if we're in the middle of constructing a subgraph
+  // and need to call Resolve
+  lsc.output_names.insert(outer_scope_node_arg_names_.cbegin(), outer_scope_node_arg_names_.cend());
+
   for (auto node_index : nodes_in_topological_order_) {
     // Node verification.
     auto& node = *GetNode(node_index);
@@ -1656,16 +1686,15 @@ Status Graph::VerifyNodeAndOpMatch() {
         node.op_ = nullptr;
       }
 
-      if (!node.op_) {
-        ONNX_NAMESPACE::FunctionBuilderRegistry& function_registry =
-            FunctionBuilderRegistry::OnnxInstance();
-        auto onnx_function_proto = function_registry.GetFunction(node.OpType(), maxInclusiveVersion, ONNX_DOMAIN);
-        if (!onnx_function_proto) {
-          return Status(ONNXRUNTIME, FAIL, "Fatal error: " + node.OpType() + " is not a registered function/op");
-        }
+      if (node.op_ && node.op_->HasFunction()) {
+        auto onnx_function_proto = node.op_->GetFunction();
         auto func_ptr = std::make_unique<onnxruntime::FunctionImpl>(*this, node.Index(), onnx_function_proto);
         function_container_.emplace_back(std::move(func_ptr));
         node.SetFunctionBody(*function_container_.back());
+      }
+
+      if (!node.op_) {
+        return Status(ONNXRUNTIME, FAIL, "Fatal error: " + node.OpType() + " is not a registered function/op");
       }
     }
 
@@ -1679,7 +1708,7 @@ Status Graph::VerifyNodeAndOpMatch() {
     // default value defined in operator definition if needed.
     // Fill node attribute with default value specified in operator definition if any.
     auto node_attributes = node.GetAttributes();
-    for (auto attr_def : p_op->attributes()) {
+    for (const auto& attr_def : p_op->attributes()) {
       auto node_attr_iter = node_attributes.find(attr_def.first);
       if (node_attributes.end() == node_attr_iter) {
         // The attribute was not specified in the node.
@@ -2159,6 +2188,13 @@ void Graph::SyncGraphInputsOutputs() {
   for (const auto* value_info : value_info_) {
     *(graph_proto_->mutable_value_info()->Add()) = value_info->ToProto();
   }
+
+  // add the NodeArg info for outer scope NodeArgs so we capture the type information
+  for (const auto& name : outer_scope_node_arg_names_) {
+    auto* node_arg = GetNodeArg(name);
+    ORT_ENFORCE(node_arg, "Outer scope node arg name '" + name + "'was added but does not exist. ");
+    *(graph_proto_->mutable_value_info()->Add()) = node_arg->ToProto();
+  }
 }
 
 void Graph::CleanUnusedInitializers() {
@@ -2294,7 +2330,8 @@ Status Graph::SetGraphInputsOutputs() {
           // The node input is not specified as graph input,
           // and it's not fed by another node neither.
           if (!IsSubgraph()) {
-            return Status(ONNXRUNTIME, FAIL, "Node input (" + input_arg->Name() + ") should be a graph input or initializer.");
+            return Status(ONNXRUNTIME, FAIL,
+                          "Node input (" + input_arg->Name() + ") should be a graph input or initializer.");
           }
 
           // TODO: Do we need to do a comprehensive check that the input is coming from the outer scope or is it

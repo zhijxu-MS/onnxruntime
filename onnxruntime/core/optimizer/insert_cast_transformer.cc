@@ -98,21 +98,30 @@ class RemoveDuplicateCastTransformer : public GraphTransformer {
   }
 
  private:
-  Status ApplyImpl(onnxruntime::Graph& graph, bool& modified, int graph_level) const override {
+  Status ApplyImpl(Graph& graph, bool& modified, int graph_level) const override {
+
     std::map<const onnxruntime::NodeArg*, onnxruntime::NodeArg*> replacement_defs;
     std::vector<onnxruntime::NodeIndex> removed_nodes;
     for (auto& node : graph.Nodes()) {
       if (node.OpType() == "Cast") {
         // if cast's next node is also cast and next cast's output type equal to cast's input type
         // remove those two cast.
+        // boolean is an exception case for this optimization
         auto src_type = node.InputDefs()[0]->Type();
         auto dst_type = node.OutputDefs()[0]->Type();
+        if (*src_type == "tensor(bool)" || *dst_type == "tensor(bool)") return Status::OK();
         auto input = node.MutableInputDefs()[0];
         int child_removed = 0;
         int num_child = 0;
+        auto output_args = graph.GetOutputs();
+        std::unordered_set<const onnxruntime::NodeArg*> graph_outputs(output_args.begin(), output_args.end());
         for (auto it = node.OutputNodesBegin(); it != node.OutputNodesEnd(); ++it) {
           const Node& output_node{*it};
           if (output_node.OpType() == "Cast") {
+            // Skip if the node's output is also the output of the graph
+            if (graph_outputs.find(output_node.OutputDefs()[0]) != graph_outputs.end()) {
+              break;
+            }
             auto src_type1 = output_node.InputDefs()[0]->Type();
             auto dst_type1 = output_node.OutputDefs()[0]->Type();
             if (src_type == dst_type1 && src_type1 == dst_type) {
@@ -147,6 +156,7 @@ class RemoveDuplicateCastTransformer : public GraphTransformer {
 };
 
 Status InsertCastTransformer::ApplyImpl(onnxruntime::Graph& graph, bool& modified, int graph_level) const {
+
   if (force_cpu_fp32_)
     ORT_RETURN_IF_ERROR(ForceSingleNodeCPUFloat16ToFloat32(graph));
 
@@ -230,6 +240,8 @@ Status InsertCastTransformer::ApplyImpl(onnxruntime::Graph& graph, bool& modifie
     }
     
     RemoveDuplicateCastTransformer remover;
+    // RemoveDuplicateCastTransformer is a special transformer required for correctness.
+    // It is provider agnostic so simply send an empty vector.
     status = remover.Apply(graph, modified);
   }
 
