@@ -127,6 +127,7 @@ Status TopKImpl(OpKernelContext* p_op_kernel_context, const Tensor* X, const int
 }
 
 // Opset ver - 1 to 9
+/*
 template <>
 TopK<9, float>::TopK(const OpKernelInfo& op_kernel_info) : OpKernel(op_kernel_info) {
   int64_t k_temp;
@@ -147,10 +148,10 @@ Status TopK<9, float>::Compute(OpKernelContext* p_op_kernel_context) const {
                                   "input count mismatch, expected 1 input - the tensor to be processed");
   return TopKImpl(p_op_kernel_context, X, axis_, k_);
 }
-
+*/
 // Opset ver - 10
 template <>
-TopK<10, float>::TopK(const OpKernelInfo& op_kernel_info) : OpKernel(op_kernel_info) {
+TopK<9, float>::TopK(const OpKernelInfo& op_kernel_info) : OpKernel(op_kernel_info) {
   int64_t axis_temp;
   ORT_ENFORCE(op_kernel_info.GetAttr<int64_t>("axis", &axis_temp).IsOK());
   axis_ = gsl::narrow_cast<int>(axis_temp);
@@ -158,7 +159,7 @@ TopK<10, float>::TopK(const OpKernelInfo& op_kernel_info) : OpKernel(op_kernel_i
 
 // Opset ver - 10
 template <>
-Status TopK<10, float>::Compute(OpKernelContext* p_op_kernel_context) const {
+Status TopK<9, float>::Compute(OpKernelContext* p_op_kernel_context) const {
   const Tensor* X = p_op_kernel_context->Input<Tensor>(0);
   const Tensor* Y = p_op_kernel_context->Input<Tensor>(1);
   if (X == nullptr || Y == nullptr) return Status(common::ONNXRUNTIME, common::FAIL,
@@ -173,16 +174,17 @@ Status TopK<10, float>::Compute(OpKernelContext* p_op_kernel_context) const {
 
 // Register necessary kernels
 // spec https://github.com/onnx/onnx/blob/master/docs/Operators.md#TopK
+/*
 ONNX_CPU_OPERATOR_VERSIONED_KERNEL(
     TopK,
     1, 9,
     KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<float>()).TypeConstraint("I", DataTypeImpl::GetTensorType<int64_t>()),
     TopK<9, float>);
-
+*/
 ONNX_CPU_OPERATOR_KERNEL(
     TopK,
-    10,
+    9,
     KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<float>()).TypeConstraint("I", DataTypeImpl::GetTensorType<int64_t>()),
-    TopK<10, float>);
+    TopK<9, float>);
 
 }  // namespace onnxruntime
