@@ -105,7 +105,7 @@ Status NonMaxSuppression::ParepareCompute(OpKernelContext* ctx, const TensorShap
   const Tensor* max_output_boxes_per_class_tensor = ctx->Input<Tensor>(2);
   if (max_output_boxes_per_class_tensor != nullptr) {
     max_output_boxes_per_class = *(max_output_boxes_per_class_tensor->Data<int32_t>());
-    ORT_RETURN_IF_NOT(max_output_boxes_per_class > 0, "max_output_boxes_per_class should be greater than 0.");
+    //ORT_RETURN_IF_NOT(max_output_boxes_per_class > 0, "max_output_boxes_per_class should be greater than 0.");
   }
 
   const Tensor* iou_threshold_tensor = ctx->Input<Tensor>(3);
@@ -195,6 +195,8 @@ Status NonMaxSuppression::Compute(OpKernelContext* ctx) const {
   }      //for batch_index
 
   int32_t num_selected = static_cast<int32_t>(tmp_selected_indices.size());
+  if (max_output_boxes_per_class == 0)
+      num_selected = 0;
   Tensor* selected_indices = ctx->Output(0, {num_selected, 3});
   ORT_ENFORCE(selected_indices);
   memcpy(selected_indices->MutableData<int32_t>(), tmp_selected_indices.data(), num_selected * sizeof(selected_index));
