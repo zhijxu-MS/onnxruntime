@@ -5,6 +5,44 @@
 #include "environment.h"
 #include "core/session/onnxruntime_cxx_api.h"
 
+#ifdef USE_CUDA
+
+#include "core/providers/cuda/cuda_provider_factory.h"
+
+#endif
+
+#ifdef USE_TENSORRT
+
+#include "core/providers/tensorrt/tensorrt_provider_factory.h"
+
+#endif
+
+#ifdef USE_MKLDNN
+
+#include "core/providers/mkldnn/mkldnn_provider_factory.h"
+
+#endif
+
+#ifdef USE_NGRAPH
+
+#include "core/providers/ngraph/ngraph_provider_factory.h"
+
+#endif
+
+#ifdef USE_OPENVINO
+
+#include "core/providers/openvino/openvino_provider_factory.h"
+
+#endif
+
+#ifdef USE_NUPHAR
+
+#include "core/providers/nuphar/nuphar_provider_factory.h"
+
+std::string nuphar_settings;
+
+#endif
+
 namespace onnxruntime {
 namespace server {
 
@@ -42,8 +80,35 @@ ServerEnvironment::ServerEnvironment(OrtLoggingLevel severity, spdlog::sinks_ini
   spdlog::initialize_logger(default_logger_);
 }
 
+void ServerEnvironment::RegisterEexcutionProviders(){
+  #ifdef USE_CUDA
+  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_CUDA(options_, 1));
+  #endif
+
+  #ifdef USE_TENSORRT
+  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Tensorrt(options_, 1));
+  #endif
+
+  #ifdef USE_MKLDNN
+  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Mkldnn(options_, 1));
+  #endif
+
+  #ifdef USE_NGRAPH
+  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_NGraph(options_, "CPU"));
+  #endif
+
+  #ifdef USE_OPENVINO
+  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_OpenVINO(options_, "CPU"));
+  #endif
+
+  #ifdef USE_NUPHAR
+  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Nuphar(options_, 1));
+  #endif
+}
+
 void ServerEnvironment::InitializeModel(const std::string& model_path, const std::string& model_name, const std::string& model_version) {
-  auto result = sessions_.emplace(std::piecewise_construct, std::forward_as_tuple(model_name, model_version), std::forward_as_tuple(runtime_environment_, model_path.c_str(), Ort::SessionOptions()));
+  RegisterEexcutionProviders();
+  auto result = sessions_.emplace(std::piecewise_construct, std::forward_as_tuple(model_name, model_version), std::forward_as_tuple(runtime_environment_, model_path.c_str(), options_));
 
   if (!result.second) {
     throw Ort::Exception("Model of that name already loaded.", ORT_INVALID_ARGUMENT);
