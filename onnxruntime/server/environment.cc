@@ -39,8 +39,6 @@
 
 #include "core/providers/nuphar/nuphar_provider_factory.h"
 
-std::string nuphar_settings;
-
 #endif
 
 namespace onnxruntime {
@@ -82,27 +80,27 @@ ServerEnvironment::ServerEnvironment(OrtLoggingLevel severity, spdlog::sinks_ini
 
 void ServerEnvironment::RegisterEexcutionProviders(){
   #ifdef USE_CUDA
-  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_CUDA(options_, 1));
+  Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_CUDA(options_, 1));
   #endif
 
   #ifdef USE_TENSORRT
-  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Tensorrt(options_, 1));
+  Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_Tensorrt(options_, 1));
   #endif
 
   #ifdef USE_MKLDNN
-  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Mkldnn(options_, 1));
+  Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_Mkldnn(options_, 1));
   #endif
 
   #ifdef USE_NGRAPH
-  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_NGraph(options_, "CPU"));
+  Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_NGraph(options_, "CPU"));
   #endif
 
   #ifdef USE_OPENVINO
-  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_OpenVINO(options_, "CPU"));
+  Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_OpenVINO(options_, "CPU"));
   #endif
 
   #ifdef USE_NUPHAR
-  ORT_THROW_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_Nuphar(options_, 1));
+  Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_Nuphar(options_, 1, ""));
   #endif
 }
 
