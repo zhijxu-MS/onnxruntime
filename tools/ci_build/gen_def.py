@@ -32,6 +32,8 @@ for c in args.config:
       symbols.add(line)
 symbols = sorted(symbols)
 
+symbols_used_in_orts = ['_ZN11onnxruntime5Model*', '_ZNK11onnxruntime5Model*']
+
 symbol_index = 1
 with open(args.output, 'w') as file:
   if args.style == 'vc':    
@@ -41,7 +43,7 @@ with open(args.output, 'w') as file:
     file.write('VERS_%s {\n' % VERSION_STRING)
     file.write(' global:\n')
 
-  for symbol in symbols:
+  for symbol in symbols + symbols_used_in_orts:
     if args.style == 'vc':
       file.write(" %s @%d\n" % (symbol,symbol_index))
     else:

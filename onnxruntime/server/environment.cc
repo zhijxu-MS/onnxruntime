@@ -4,6 +4,9 @@
 #include <memory>
 #include "environment.h"
 #include "core/session/onnxruntime_cxx_api.h"
+#include "core/graph/model.h"
+#include <string>
+#include <iostream>
 
 #ifdef USE_CUDA
 
@@ -105,6 +108,18 @@ void ServerEnvironment::RegisterEexcutionProviders(){
 }
 
 void ServerEnvironment::InitializeModel(const std::string& model_path, const std::string& model_name, const std::string& model_version) {
+  // load session option from model which will be set into onnxrtunime session accrodingly.
+    {
+    auto model_sp = std::make_shared<onnxruntime::Model>("test");
+    model_sp->Load(model_path, model_sp);
+    auto model_meta_data = model_sp->MetaData();
+    auto thread_num = model_meta_data["threads"];
+    std::cout << "setting session option thread number to " << thread_num << std::endl;
+    options_.SetGraphOptimizationLevel(ORT_ENABLE_EXTENDED);
+    options_.SetIntraOpNumThreads(std::stoi(thread_num));
+    options_.SetInterOpNumThreads(std::stoi(thread_num));
+  }
+
   RegisterEexcutionProviders();
   auto result = sessions_.emplace(std::piecewise_construct, std::forward_as_tuple(model_name, model_version), std::forward_as_tuple(runtime_environment_, model_path.c_str(), options_));
 
