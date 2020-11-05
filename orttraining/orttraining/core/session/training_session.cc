@@ -378,6 +378,11 @@ Status TrainingSession::ConfigureForTraining(
         config.model_with_training_graph_path.value(), SaveOption::NO_RELOAD));
   }
 
+  if (IsRootNode(config) and std::getenv("FULL_GRAPH_PATH")!=nullptr){
+       printf("\n\n\nsaving full graph to %s\n\n\n", std::getenv("FULL_GRAPH_PATH"));
+       ORT_RETURN_IF_ERROR(Save(std::getenv("FULL_GRAPH_PATH"), SaveOption::NO_RELOAD));
+  }
+
   // After pipeline partition, we need to return the inputs allowed in this partition.
   if (config.pipeline_config.has_value()) {
     const auto& allowed_inputs = model_->MainGraph().GetInputsIncludingInitializers();
