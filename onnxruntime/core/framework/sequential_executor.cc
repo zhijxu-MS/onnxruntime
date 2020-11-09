@@ -13,6 +13,10 @@
 #include "core/framework/execution_frame.h"
 #include "core/framework/session_state.h"
 #include "core/framework/op_kernel_context_internal.h"
+#include <iomanip>
+#include <fstream>
+#include "core/util/math.h"
+#include <iostream>
 
 #if defined DEBUG_NODE_INPUTS_OUTPUTS
 #include "core/framework/debug_node_inputs_outputs_utils.h"
@@ -53,6 +57,158 @@ LARGE_INTEGER perf_freq = OrtGetPerformanceFrequency();
 #endif
 
 namespace onnxruntime {
+
+
+class InputDebugger {
+ public:
+ static int curr_iter;
+ static int start_iter;
+ static int end_iter;
+ static unsigned int element_counts;
+
+  void handle_node(OpKernelContext& context, const Node& node, const SessionState& session_state) {
+    if (curr_iter < start_iter || curr_iter >= end_iter) {
+      return;
+    }
+
+    if (print_node_infos) {
+      std::cout << "Node: " << node.Name() << ", Op Type: " << node.OpType() << ", Inputs: ";
+    }
+
+    if (!all_nodes && enabled_nodes.find(node.Name()) == enabled_nodes.end()) {
+      return;
+    }
+
+    const auto& input_defs = node.InputDefs();
+    for (int i = 0; i < (int)input_defs.size(); i++) {
+      std::string arg_name = input_defs[i]->Name();
+      if (print_node_infos) {
+        std::cout << arg_name << ", ";
+      }
+
+      if (!input_defs[i]->Exists() || (!all_nodes && enabled_nodes[node.Name()].find(i) == enabled_nodes[node.Name()].end())) {
+        continue;
+      }
+
+      if (processed_inputs.find(arg_name) != processed_inputs.end()) {
+        continue;
+      }
+
+      processed_inputs.insert(arg_name);
+      const auto* type = context.InputType(i);
+      if (type) {
+        if (type->IsTensorType()) {
+          const auto& tensor = *context.Input<Tensor>(i);
+          const auto& shape = tensor.Shape();
+          auto& tensor_location = tensor.Location();
+          const auto data_type = tensor.DataType();
+          if (tensor_location.device.Type() == OrtDevice::GPU &&
+              (data_type->AsPrimitiveDataType()->GetDataType() == ONNX_NAMESPACE::TensorProto_DataType_FLOAT ||
+              data_type->AsPrimitiveDataType()->GetDataType() == ONNX_NAMESPACE::TensorProto_DataType_FLOAT16 ||
+              data_type->AsPrimitiveDataType()->GetDataType() == ONNX_NAMESPACE::TensorProto_DataType_BFLOAT16)) {
+            const auto& execution_providers = session_state.GetExecutionProviders();
+            const auto* cpu_execution_provider = execution_providers.Get(onnxruntime::kCpuExecutionProvider);
+            auto cpu_allocator = cpu_execution_provider->GetAllocator(0, OrtMemTypeDefault);
+            std::unique_ptr<Tensor> cpu_tensor = onnxruntime::make_unique<Tensor>(data_type, shape, cpu_allocator);
+            const auto& data_transfer_mgr = session_state.GetDataTransferMgr();
+            auto status = data_transfer_mgr.CopyTensor(tensor, *cpu_tensor.get(), 0);
+            if (status == common::Status::OK()) {
+              size_t num_items = shape.Size();
+              if (num_items > element_counts) {
+                num_items = element_counts;
+              }
+
+              input_tensors[arg_name] = std::vector<float>();
+              if (data_type->AsPrimitiveDataType()->GetDataType() == ONNX_NAMESPACE::TensorProto_DataType_FLOAT) {
+                auto float_data = cpu_tensor.get()->DataAsSpan<float>();
+                for (size_t j = 0; j < num_items; j++) {
+                  input_tensors[arg_name].push_back(float_data[j]);
+                }
+              } else if (data_type->AsPrimitiveDataType()->GetDataType() == ONNX_NAMESPACE::TensorProto_DataType_FLOAT16) {
+                auto fp16_data = cpu_tensor.get()->DataAsSpan<MLFloat16>();
+                for (size_t j = 0; j < num_items; j++) {
+                  input_tensors[arg_name].push_back(math::halfToFloat(fp16_data[j].val));
+                }
+              } else {
+                auto bf16_data = cpu_tensor.get()->DataAsSpan<BFloat16>();
+                for (size_t j = 0; j < num_items; j++) {
+                  input_tensors[arg_name].push_back(bf16_data[j].ToFloat());
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (print_node_infos) {
+      std::cout << std::endl;
+    }
+  }
+
+  void print() {
+    if (curr_iter < start_iter || curr_iter >= end_iter) {
+      return;
+    }
+
+    std::map<std::string, std::vector<float>>::iterator it = input_tensors.begin();
+    while (it != input_tensors.end()) {
+      std::cout << "Arg Name: " << it->first << std::endl << "    ";
+      if (it->second.size() == 0) {
+        std::cout << "no data" << std::endl;
+      } else {
+        for (size_t i = 0; i < it->second.size() - 1; i++) {
+          std::cout << std::setprecision(8) << it->second[i] << ", ";
+        }
+
+        std::cout << std::setprecision(8) << it->second[it->second.size() - 1] << std::endl;
+      }
+
+      it++;
+    }
+  }
+
+  void write(std::string path) {
+    if (curr_iter < start_iter || curr_iter >= end_iter) {
+      return;
+    }
+
+    std::ofstream out_file;
+    out_file.open(path + "/iter_" + std::to_string(curr_iter) + ".out");
+    std::map<std::string, std::vector<float>>::iterator it = input_tensors.begin();
+    while (it != input_tensors.end()) {
+      out_file << "Arg Name: " << it->first << std::endl << "    ";
+      if (it->second.size() == 0) {
+        out_file << "no data" << std::endl;
+      } else {
+        for (size_t i = 0; i < it->second.size() - 1; i++) {
+          out_file << std::setprecision(8) << it->second[i] << ", ";
+        }
+
+        out_file << std::setprecision(8) << it->second[it->second.size() - 1] << std::endl;
+      }
+
+      it++;
+    }
+
+    out_file.close();
+  }
+
+ private:
+  bool all_nodes = true;
+  bool print_node_infos = false;
+  std::map<std::string, std::set<int>> enabled_nodes = {
+      //{"Add_276_Grad/ReduceSum_1", {0}}
+  };
+  std::map<std::string, std::vector<float>> input_tensors = {};
+  std::set<std::string> processed_inputs = {};
+};
+
+int InputDebugger::curr_iter = 0;
+int InputDebugger::start_iter = 0;
+int InputDebugger::end_iter = 1;
+unsigned int InputDebugger::element_counts = 128;
+
 
 static void CalculateTotalOutputSizes(OpKernelContextInternal* op_kernel_context,
                                       size_t& total_output_sizes, const std::string& node_name) {
@@ -186,7 +342,18 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
       "Batch-" + tag + " Backward",
       profile::Color::Black);
 #endif
+    if(auto env_p = std::getenv("END_ITER")){
+        InputDebugger::end_iter = atoi(env_p);
+        printf("setting end_iter to %d\n", InputDebugger::end_iter);
+    }
 
+    if(auto env_p = std::getenv("ELEMENT_CNT")){
+        InputDebugger::element_counts = atoi(env_p);
+        printf("setting element_counts to %d\n", InputDebugger::element_counts);
+    }
+
+
+  InputDebugger debugger = InputDebugger();
   for (const auto& node_exec_plan : exec_plan_vec) {
     if (terminate_flag_) {
       LOGS(logger, WARNING) << "Exiting due to terminate flag being set to true.";
@@ -302,6 +469,9 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
       Status compute_status;
 
       ORT_TRY {
+        if(std::getenv("DUMP_GRAD")){
+            debugger.handle_node(op_kernel_context, node, session_state);
+        }
         compute_status = p_op_kernel->Compute(&op_kernel_context);
       }
       ORT_CATCH(const std::exception& ex) {
@@ -407,6 +577,12 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
     // free ml-values corresponding to this node
     VLOGS(logger, 1) << "Releasing node ML values.";
     ORT_RETURN_IF_ERROR(ReleaseNodeMLValues(frame, seq_exec_plan, node_exec_plan, logger));
+  }
+  if(std::getenv("DUMP_GRAD")){
+    printf("\n\nwrite gradient to file /bert/logs\n\n");
+    debugger.write("/bert/logs");
+
+    InputDebugger::curr_iter++;
   }
 
 #ifdef ENABLE_NVTX_PROFILE
